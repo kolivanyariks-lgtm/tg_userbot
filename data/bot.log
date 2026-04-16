@@ -4272,3 +4272,32 @@ __U...
 2026-04-16 22:37:51,184 - bot.chat_roulette.manager - INFO - [Roulette msg] state=DIALOG_ACTIVE sender_id=8678588294 roulette_bot_id=8678588294 is_bot=True text=__Press __**__/search__**__ to find someone to talk to__
 2026-04-16 22:37:53,194 - telethon.network.mtprotosender - INFO - Disconnecting from 149.154.175.56:443/TcpFull...
 2026-04-16 22:37:53,195 - telethon.network.mtprotosender - INFO - Disconnection from 149.154.175.56:443/TcpFull complete!
+2026-04-16 22:40:55,906 - __main__ - INFO - 🚀 Starting bot...
+2026-04-16 22:40:55,907 - __main__ - INFO - 📁 Working directory: C:\Users\User\PycharmProjects\telegram_userbot\data
+2026-04-16 22:40:55,907 - __main__ - INFO - 📱 Phone: +19809224753
+2026-04-16 22:40:55,908 - bot.dialogue_memory - ERROR - Error loading contexts: Expecting value: line 1 column 1 (char 0)
+2026-04-16 22:40:55,909 - bot.dialogue_memory - INFO - Loaded 0 user stats
+2026-04-16 22:40:55,910 - bot.dialogue_memory - INFO - Loaded file live_training.txt: 117 messages
+2026-04-16 22:40:55,910 - bot.dialogue_memory - INFO - Loaded file my_chats.txt: 1 messages
+2026-04-16 22:40:55,910 - bot.dialogue_memory - INFO - Total loaded 118 examples
+2026-04-16 22:40:55,910 - bot.dialogue_memory - INFO - DialogueMemory initialized
+2026-04-16 22:40:55,910 - bot.ai_client - INFO - AI Client initialized. Model: google/gemma-3-27b-it
+2026-04-16 22:40:55,910 - __main__ - INFO - 📲 Connecting to Telegram...
+2026-04-16 22:40:55,910 - telethon.network.mtprotosender - INFO - Connecting to 149.154.175.56:443/TcpFull...
+2026-04-16 22:40:56,056 - telethon.network.mtprotosender - INFO - Connection to 149.154.175.56:443/TcpFull complete!
+2026-04-16 22:40:56,969 - __main__ - INFO - ✅ Connected!
+2026-04-16 22:40:57,122 - bot.chat_roulette.manager - INFO - 🎯 ChatRouletteManager initialized. Bot: @anonymous_chatusbot (ID: 8678588294)
+2026-04-16 22:40:57,122 - __main__ - INFO - 🎰 Chat roulette manager ready
+2026-04-16 22:40:57,122 - __main__ - INFO - ▶️ Starting auto mode...
+2026-04-16 22:40:57,122 - bot.chat_roulette.manager - INFO - 🚀 Auto chat roulette mode started
+2026-04-16 22:40:57,122 - bot.chat_roulette.manager - INFO - 🔍 Looking for a partner...
+2026-04-16 22:40:57,446 - bot.chat_roulette.manager - INFO - ✅ Clicked button: Find a partner
+2026-04-16 22:40:57,446 - __main__ - INFO - ⏳ Bot is running. Press Ctrl+C to stop.
+2026-04-16 22:40:58,157 - bot.chat_roulette.manager - INFO - [Roulette msg] state=SEARCHING sender_id=8678588294 roulette_bot_id=8678588294 is_bot=True text=**__💎__**__** PREMIUM Partner!
+**​
+Room: ____💬____ Chat
+Reactions: 0____👍____ 2____👎____
+​
+____/next____ - find the next
+2026-04-16 22:41:00,966 - telethon.network.mtprotosender - INFO - Disconnecting from 149.154.175.56:443/TcpFull...
+2026-04-16 22:41:00,966 - telethon.network.mtprotosender - INFO - Disconnection from 149.154.175.56:443/TcpFull complete!
