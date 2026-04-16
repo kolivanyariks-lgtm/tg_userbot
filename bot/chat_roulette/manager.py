@@ -49,6 +49,8 @@ class DialogContext:
     asked_age: bool = False
     asked_name: bool = False
     partner_location_known: bool = False
+    proactive_escalation_count: int = 0  # Track bot-initiated escalations
+    partner_language: str = "en"  # Detected partner language (en/ru)
 
     def __post_init__(self):
         if self.topics_discussed is None:
@@ -59,6 +61,8 @@ class DialogContext:
             self.recent_assistant_replies = []
         if self.recent_assistant_texts is None:
             self.recent_assistant_texts = []
+        # Start with lower heat for gradual escalation
+        self.heat_score = 15
 
 
 class ChatRouletteManager:
@@ -552,12 +556,23 @@ class ChatRouletteManager:
             if not self.current_dialog.partner_info:
                 self.current_dialog.partner_info = {}
             self.current_dialog.partner_info["location"] = text.strip()
+        
+        # AI-based spiciness analysis for better context understanding
+        if len(text) > 10 and self.current_dialog.message_count % 2 == 0:
+            asyncio.create_task(self._analyze_message_spiciness(text))
 
         # Save every partner message for live style training in real time.
         try:
             self.memory.record_live_message("user", text, "Partner")
         except Exception:
             pass
+        
+        # Detect language (Russian vs English)
+        if self._detect_russian(text):
+            self.current_dialog.partner_language = "ru"
+            logger.info("[Roulette] Detected Russian language")
+        elif self.current_dialog.partner_language == "en" and self._detect_english(text):
+            self.current_dialog.partner_language = "en"
 
         # Infer shorthand gender messages like "m" and "g".
         inferred_gender = self._infer_gender_from_text(text)
@@ -637,8 +652,9 @@ class ChatRouletteManager:
             if self.state != RouletteState.DIALOG_ACTIVE or not self.current_dialog:
                 return
             self.current_dialog.dialogue_history.append({"role": "user", "content": combined_text})
-            if len(self.current_dialog.dialogue_history) > 12:
-                self.current_dialog.dialogue_history = self.current_dialog.dialogue_history[-12:]
+            # Increased history limit from 12 to 20 for better context
+            if len(self.current_dialog.dialogue_history) > 20:
+                self.current_dialog.dialogue_history = self.current_dialog.dialogue_history[-20:]
             await self._process_dialog_stage(combined_text)
 
     def _update_dialog_heat(self, partner_text: str):
@@ -657,11 +673,14 @@ class ChatRouletteManager:
             r"\bflirt\b|\bturn\s*on\b|\bhorny\b",
             r"\bпошл\b|\bсек[сc]\b|\bинтим\b|\bгоряч\b",
             r"\bme too\b|\bsame here\b|\binteresting\b",
+            r"\bnice\b|\bcool\b|\bawesome\b|\bgreat\b",
         ]
 
         spicy_explicit_patterns = [
             r"\bdirty\b|\bnaughty\b|\bwet\b|\bspicy\b|\bnsfw\b",
             r"\bпошл[аяо]\b|\bвозбуд|\bэрот|\bразврат",
+            r"\bfuck\b|\bsex\b|\bdick\b|\bpussy\b|\btits\b|\bass\b",
+            r"\bmasturbat\b|\bcum\b|\bhard\b|\btouch\b",
         ]
 
         # Contact intent signals
@@ -680,20 +699,24 @@ class ChatRouletteManager:
         delta = 0
         for pattern in flirt_patterns:
             if re.search(pattern, text):
-                delta += 8
+                delta += 6
         for pattern in spicy_explicit_patterns:
             if re.search(pattern, text):
-                delta += 14
+                delta += 12
         for pattern in contact_patterns:
             if re.search(pattern, text):
-                delta += 14
+                delta += 10
         for pattern in cold_patterns:
             if re.search(pattern, text):
-                delta -= 8
+                delta -= 10
 
         # Longer engaged messages are usually better than one-word replies.
         if len(text.strip()) >= 35:
-            delta += 4
+            delta += 3
+        
+        # Question marks indicate engagement
+        if "?" in text:
+            delta += 2
 
         # Clamp to [0, 100]
         self.current_dialog.heat_score = max(0, min(100, self.current_dialog.heat_score + delta))
@@ -712,6 +735,9 @@ class ChatRouletteManager:
         patterns = [
             r"\bdirty\b|\bnaughty\b|\bsexy\b|\bhorny\b|\bhot\b|\bturn\s*on\b",
             r"\bпошл\b|\bсек[сc]\b|\bинтим\b|\bгоряч\b|\bвозбуд",
+            r"\bfuck\b|\bsex\b|\bdick\b|\bpussy\b|\btits\b|\bass\b",
+            r"\bwet\b|\bhard\b|\bcum\b|\bmasturbat\b|\btouch\b",
+            r"\bwanna\s+(fuck|sex|do)\b|\blet's\s+get\s+dirty\b",
         ]
         return any(re.search(p, t) for p in patterns)
 
@@ -776,24 +802,50 @@ class ChatRouletteManager:
             r"\bdrugs?\b|\bнаркотик|\bзакладк",
         ]
         return any(re.search(p, normalized) for p in patterns)
+    
+    @staticmethod
+    def _detect_russian(text: str) -> bool:
+        """Detect if text contains Russian (cyrillic) characters"""
+        if not text:
+            return False
+        # Check for cyrillic characters
+        cyrillic_count = sum(1 for c in text if '\u0400' <= c <= '\u04FF')
+        return cyrillic_count >= 3
+    
+    @staticmethod
+    def _detect_english(text: str) -> bool:
+        """Detect if text is primarily English"""
+        if not text:
+            return False
+        # Check for latin characters
+        latin_count = sum(1 for c in text if 'a' <= c.lower() <= 'z')
+        return latin_count >= 5
 
     async def _process_dialog_stage(self, partner_text: str):
         """Process dialog stage and make decisions"""
         dialog = self.current_dialog
 
         if self._partner_is_spicy(partner_text):
-            dialog.heat_score = min(100, dialog.heat_score + 12)
+            dialog.heat_score = min(100, dialog.heat_score + 15)
             dialog.spicy_turns += 1
+            logger.info(f"[Roulette spicy] partner is spicy, heat +15 -> {dialog.heat_score}")
 
-        # Determine stage by conversation heat, not elapsed time.
-        if dialog.heat_score < 18:
+        # Determine stage by conversation heat with adjusted thresholds
+        if dialog.heat_score < 25:
             dialog.dialog_stage = "opening"
-        elif dialog.heat_score < 45:
+        elif dialog.heat_score < 50:
             dialog.dialog_stage = "rapport"
-        elif dialog.heat_score < 70:
+        elif dialog.heat_score < 75:
             dialog.dialog_stage = "spicy"
         else:
             dialog.dialog_stage = "closing"
+        
+        # Proactive escalation: bot gradually increases heat on its own
+        if dialog.message_count >= 4 and dialog.message_count % 3 == 0:
+            if dialog.heat_score < 80:
+                dialog.heat_score = min(100, dialog.heat_score + 3)
+                dialog.proactive_escalation_count += 1
+                logger.info(f"[Roulette proactive] heat +3 -> {dialog.heat_score}")
 
         # Try fast human-like short replies for common prompts first.
         response = self._quick_human_reply(partner_text)
@@ -829,14 +881,29 @@ class ChatRouletteManager:
         messages = [{"role": "system", "content": system_prompt}]
 
         # Keep local dialogue history isolated per current partner.
+        # Increased from 8 to 12 for better context
         if dialog.dialogue_history:
-            messages.extend(dialog.dialogue_history[-8:])
+            history_to_send = dialog.dialogue_history[-12:]
+            messages.extend(history_to_send)
+            
+            # Log history for debugging
+            logger.info(f"[AI Context] Sending {len(history_to_send)} messages from history")
+            for i, msg in enumerate(history_to_send[-4:]):  # Log last 4 for debugging
+                preview = msg['content'][:50] if len(msg['content']) > 50 else msg['content']
+                logger.debug(f"  [{msg['role']}] {preview}...")
 
         # Current message
         messages.append({"role": "user", "content": partner_text})
+        logger.info(f"[AI Request] Current message: {partner_text[:80]}...")
 
         # Get response from AI
-        response = await self.ai.get_raw_response(messages)
+        try:
+            response = await self.ai.get_raw_response(messages)
+            logger.info(f"[AI Response] {response[:80]}...")
+        except Exception as e:
+            logger.error(f"[AI Error] {e}")
+            # Return contextual fallback
+            return self._get_contextual_fallback(partner_text)
 
         # Clean SCORE if present
         response = re.sub(r'\[SCORE:.*?\]', '', response, flags=re.IGNORECASE).strip()
@@ -846,24 +913,42 @@ class ChatRouletteManager:
     def _build_roulette_prompt(self, dialog: DialogContext) -> str:
         """Build prompt specifically for chat roulette"""
 
+        # Build stage-specific instructions with concrete examples
+        stage_instructions = self._get_stage_instructions(dialog.dialog_stage, dialog.heat_score)
+        
+        # Build conversation context summary
+        context_summary = self._build_context_summary(dialog)
+        
+        # Detect language
+        lang_instruction = ""
+        if dialog.partner_language == "ru":
+            lang_instruction = "\nIMPORTANT: Partner is speaking RUSSIAN. You MUST respond in RUSSIAN (cyrillic). Use casual russian slang style."
+
         base_prompt = f"""you are {self.config.get("BOT_NAME", "Diana")}, 18, from NYC.
 you're in a chat roulette (anonymous chat), talking to a guy.
 you: playful, warm, natural, casual text style.
 keep it short, 1-2 sentences, lowercase.
-light slang is ok, but keep messages coherent and meaningful.
-style like: "hey)", "sounds good", "nyc, u?", "dm me".
+light slang is ok, but keep messages coherent and meaningful.{lang_instruction}
 
-IMPORTANT:
+CURRENT STAGE: {dialog.dialog_stage.upper()} (heat: {dialog.heat_score}/100)
+
+{stage_instructions}
+
+{context_summary}
+
+CRITICAL - STAY ON TOPIC:
+- READ the partner's last message carefully
+- RESPOND directly to what they just said
+- DON'T change topic randomly
+- DON'T ask questions if they just answered one
+- DON'T repeat yourself
+- If they ask a question, ANSWER it first, then add something
+- If they make a statement, REACT to it naturally
+- Match their energy and topic
+
+GENERAL RULES:
 - you are NOT a bot, you're a real girl
 - your goal: get the guy interested so he shares his username
-- gradually become flirtier as heat grows
-- opening: light small talk only
-- rapport: playful and flirty
-- spicy: bolder flirt, suggestive vibe (still short + natural)
-- closing: ask to move to telegram and exchange usernames naturally
-- if partner starts spicy/flirty first and context is adult, match that energy (short, playful, reciprocal)
-- if he shares his username, say you'll hit him up
-- don't ask too many questions, keep it light
 - send plain text only (no stickers, no gifs, no voice, no media)
 - keep output in one short message, no lists, no markdown
 - response length should be close to partner's message length
@@ -872,9 +957,7 @@ IMPORTANT:
 - shorthand "d" is not a gender marker
 - NEVER dump examples list or meta-text, never roleplay as AI assistant
 
-current dialog stage: {dialog.dialog_stage}
 messages in dialog: {dialog.message_count}
-dialog heat: {dialog.heat_score}/100
 """
 
         # Add partner info if available
@@ -888,6 +971,68 @@ dialog heat: {dialog.heat_score}/100
             base_prompt += f"\n\ntone reference only (don't copy literally): {sample_inline}"
 
         return base_prompt
+    
+    def _build_context_summary(self, dialog: DialogContext) -> str:
+        """Build a summary of what we know about the conversation"""
+        summary_parts = []
+        
+        if dialog.asked_from and dialog.partner_location_known:
+            location = dialog.partner_info.get("location", "unknown") if dialog.partner_info else "unknown"
+            summary_parts.append(f"- you already know they're from: {location}")
+        
+        if dialog.asked_age:
+            summary_parts.append("- you already asked their age")
+        
+        if dialog.asked_name:
+            summary_parts.append("- you already asked their name")
+        
+        if dialog.partner_info:
+            if "gender" in dialog.partner_info:
+                summary_parts.append(f"- partner is: {dialog.partner_info['gender']}")
+            if "age" in dialog.partner_info and dialog.partner_info["age"] != "**":
+                summary_parts.append(f"- partner's age: {dialog.partner_info['age']}")
+        
+        if summary_parts:
+            return "CONVERSATION CONTEXT (don't repeat these questions):\n" + "\n".join(summary_parts)
+        
+        return ""
+    
+    def _get_stage_instructions(self, stage: str, heat: int) -> str:
+        """Get detailed instructions for current dialog stage"""
+        
+        if stage == "opening":
+            return """OPENING STAGE (casual, friendly):
+- light small talk: age, location, basic info
+- be friendly but not flirty yet
+- examples: "hey, m or f?", "18, nyc. u?", "nice, where u from?", "gotcha. what u into?"
+- keep it simple and natural"""
+        
+        elif stage == "rapport":
+            return """RAPPORT STAGE (playful, teasing):
+- start being playful and flirty
+- use light compliments and teasing
+- show interest but stay casual
+- examples: "haha u're funny)", "sounds fun ngl", "u seem cool", "tell me more cutie"
+- add subtle flirt: "u're kinda cute)", "i like ur vibe", "interesting... go on"
+- can use emojis sparingly: ) 😊"""
+        
+        elif stage == "spicy":
+            return """SPICY STAGE (bold, suggestive, flirty):
+- be bolder and more suggestive
+- match his energy if he's flirty
+- use sexual tension and innuendo
+- examples: "mmm that's hot)", "u're turning me on ngl", "damn u're making me blush", "i like where this is going 😏"
+- be direct: "what would u do to me?", "tell me what u want", "u're making me wet lol"
+- reciprocate spicy topics: if he mentions body/sex, engage playfully
+- stay short and natural, don't write essays"""
+        
+        else:  # closing
+            return """CLOSING STAGE (direct, contact-focused):
+- push for moving to telegram
+- be direct about wanting to continue
+- examples: "let's move to tg?", "drop ur username", "dm me, i wanna keep talking", "my @username, hmu there 💕"
+- if he's hesitant, tease: "come on, don't be shy", "i don't bite... much 😘"
+- maintain the heat: "i wanna see more of u", "let's get naughty in dms"""
 
     def _quick_human_reply(self, partner_text: str) -> Optional[str]:
         """Short deterministic replies for frequent small-talk prompts."""
@@ -899,48 +1044,96 @@ dialog heat: {dialog.heat_score}/100
         # Avoid hi->hey loops right after our own greeting.
         if self.current_dialog and self.current_dialog.opening_sent and self.current_dialog.message_count <= 3:
             if t in {"hi", "hey", "hello", "hii", "hiii", "heyy"}:
-                return "heyy) m or f, cutie?"
+                return random.choice(["heyy) m or f?", "hey cutie, m or f?", "hiiii) u m or f?"])
 
-        # Gender clarifications
+        # Gender clarifications - ONLY when explicitly asked
         if re.search(r"\b(you|u)\s*m\b|\bm\?\b|\bare\s*you\s*male\b", compact):
-            return "nah, i'm f"
+            return random.choice(["nah, i'm f", "nope, f)", "i'm a girl lol"])
         if re.search(r"\b(you|u)\s*f\b|\bf\?\b|\bare\s*you\s*female\b", compact):
-            return "yeah, i'm f"
+            return random.choice(["yeah, i'm f", "yep, girl)", "mhm, f"])
 
-        # Partner self-intro markers
-        if re.search(r"\b(i\s*am|i'm|im)?\s*m(ale)?\b", compact):
-            return "got it, m. i'm f)"
-        if re.search(r"\b(i\s*am|i'm|im)?\s*(g|f|female|girl|familar|familiar)\b", compact):
-            return "i'm f)"
+        # Partner self-intro markers - ONLY when they state their gender
+        if re.search(r"\b(i\s*am|i'm|im)\s*m(ale)?\b", compact):
+            return random.choice(["got it, m. i'm f)", "cool, i'm f)", "nice, i'm a girl)"])
+        if re.search(r"\b(i\s*am|i'm|im)\s*(g|f|female|girl|familar|familiar)\b", compact):
+            return random.choice(["i'm f)", "same, f)", "cool, me too)"])
 
+        # Exact single-word gender markers
         if t in {"m", "male", "man"}:
-            return "got it, m. i'm f)"
+            return random.choice(["got it, m. i'm f)", "cool, i'm f)", "nice, i'm a girl)"])
         if t in {"g", "f", "girl", "female", "familar", "familiar"}:
-            return "i'm f)"
+            return random.choice(["i'm f)", "same)", "me too)"])
+        
+        # Greetings
         if t in {"hi", "hey", "hello", "yo", "sup"}:
-            return "hey)"
-        if t in {"fine", "good", "great", "nice"}:
-            return "nice. u from?"
+            return random.choice(["hey)", "heyy)", "hiiii)"])
+        
+        # Status responses - ONLY exact matches to avoid false positives
+        if t in {"fine", "good", "great"}:
+            if self.current_dialog and not self.current_dialog.asked_from:
+                return random.choice(["nice. u from?", "cool. where u from?", "gotcha. u from where?"])
+            return random.choice(["nice)", "cool)", "gotcha)"])
+        
+        # Single word "nice" - neutral reaction
+        if t == "nice":
+            return random.choice(["yeah)", "mhm)", "ikr)"])
+        
+        # Agreement
         if t in {"yes", "yh", "yeah", "yep", "ok", "k"}:
-            return "gotcha"
+            return random.choice(["gotcha", "cool", "nice", "mhm"])
+        
+        # Location questions
         if t in {"u?", "you?", "you", "u"}:
             return f"{self.config.get('BOT_CITY', 'nyc').lower()}"
         if t in {"from", "where from", "where u from", "you from"}:
             if self.current_dialog and self.current_dialog.partner_location_known:
                 return f"{self.config.get('BOT_CITY', 'nyc').lower()}"
-            return f"{self.config.get('BOT_CITY', 'nyc').lower()}. u?"
+            return random.choice([
+                f"{self.config.get('BOT_CITY', 'nyc').lower()}. u?",
+                f"{self.config.get('BOT_CITY', 'nyc').lower()}, where u from?",
+                f"{self.config.get('BOT_CITY', 'nyc').lower()}. u?"
+            ])
         if t in {"what?", "what", "wdym"}:
-            return "just asked where u from"
+            return random.choice(["just asked where u from", "where u from?", "i mean where r u from?"])
+        
+        # Age questions
         if t in {"age", "your age", "age?"}:
-            return "18. u?"
-        if "name" in t:
-            return f"{self.config.get('BOT_NAME', 'Diana').lower()}, u?"
+            return random.choice(["18. u?", "18, u?", "i'm 18. u?"])
         if "age" in t or "how old" in t:
-            return "18. u?"
+            return random.choice(["18. u?", "18, u?", "i'm 18. how old r u?"])
+        
+        # Name questions
+        if "name" in t:
+            return random.choice([
+                f"{self.config.get('BOT_NAME', 'Diana').lower()}, u?",
+                f"{self.config.get('BOT_NAME', 'Diana').lower()}. what's urs?",
+                f"i'm {self.config.get('BOT_NAME', 'Diana').lower()}. u?"
+            ])
+        
+        # Location questions with context
         if "where" in t and ("from" in t or "live" in t):
-            return f"{self.config.get('BOT_CITY', 'nyc').lower()}. u?"
+            if self.current_dialog and self.current_dialog.partner_location_known:
+                return f"{self.config.get('BOT_CITY', 'nyc').lower()}"
+            return random.choice([
+                f"{self.config.get('BOT_CITY', 'nyc').lower()}. u?",
+                f"{self.config.get('BOT_CITY', 'nyc').lower()}, where u from?",
+                f"i'm from {self.config.get('BOT_CITY', 'nyc').lower()}. u?"
+            ])
+        
+        # Confusion
         if t in {"?", "ok", "k"}:
-            return "hmm?"
+            return random.choice(["hmm?", "what?", "huh?"])
+        
+        # Common reactions - ONLY exact matches
+        if t in {"lol", "haha", "lmao", "hahaha"}:
+            return random.choice(["haha)", "lol)", "😂", "hehe)"])
+        if t in {"wow", "damn", "omg"}:
+            return random.choice(["ikr)", "yeah)", "mhm)"])
+        
+        # If message is longer than 3 words, don't use quick reply
+        if len(t.split()) > 3:
+            return None
+        
         return None
 
     @staticmethod
@@ -1029,15 +1222,24 @@ dialog heat: {dialog.heat_score}/100
         text = text.strip(" ")
 
         low = text.lower()
-        if (
-            not text
-            or "i am programmed to be a safe" in low
-            or "as an ai" in low
-            or "i cannot fulfill" in low
-            or "your messaging examples" in low
-            or "tone reference only" in low
-        ):
-            return random.choice(["hey)", "hmm?", "u there?", "lol hey"]) 
+        
+        # Detect off-topic or bot-like responses
+        bad_patterns = [
+            "i am programmed to be a safe",
+            "as an ai",
+            "i cannot fulfill",
+            "your messaging examples",
+            "tone reference only",
+            "i'm here to help",
+            "i don't have personal",
+            "i'm just a",
+            "let me know if",
+            "is there anything else",
+        ]
+        
+        if not text or any(pattern in low for pattern in bad_patterns):
+            # Return contextual fallback based on partner's message
+            return self._get_contextual_fallback(partner_text)
 
         # Keep max 2 short sentences.
         parts = re.split(r"(?<=[.!?])\s+", text)
@@ -1056,9 +1258,32 @@ dialog heat: {dialog.heat_score}/100
 
         # Avoid very tiny replies to long partner messages.
         if len(text) < 3:
-            text = "hey"
+            text = self._get_contextual_fallback(partner_text)
 
         return text.lower()
+    
+    def _get_contextual_fallback(self, partner_text: str) -> str:
+        """Get a contextual fallback response when AI fails"""
+        t = (partner_text or "").lower()
+        
+        # If partner asked a question
+        if "?" in partner_text:
+            if "where" in t or "from" in t:
+                return random.choice(["nyc. u?", "i'm from nyc, u?", "nyc, where u from?"])
+            if "age" in t or "old" in t:
+                return random.choice(["18. u?", "i'm 18, u?", "18, how old r u?"])
+            if "name" in t:
+                return random.choice(["diana. u?", "i'm diana, what's urs?", "diana, u?"])
+            if "what" in t or "how" in t:
+                return random.choice(["hmm?", "what do u mean?", "can u say that again?"])
+            return random.choice(["hmm?", "what?", "tell me more)"])
+        
+        # If partner made a statement
+        if len(t) > 15:
+            return random.choice(["interesting)", "tell me more)", "go on)", "that's cool)"])
+        
+        # Default fallbacks
+        return random.choice(["hey)", "hmm?", "u there?", "lol hey", "what's up?"])
 
     def _should_send_username(self, dialog: DialogContext, response: str, partner_text: str = "") -> bool:
         """Determine if it's time to send our username"""
@@ -1071,22 +1296,26 @@ dialog heat: {dialog.heat_score}/100
         if dialog.message_count < 4:
             return False
 
-        # Heat-gated contact logic (not time-gated).
-        if dialog.heat_score < 45:
+        # Heat-gated contact logic (lowered threshold for faster contact exchange)
+        if dialog.heat_score < 40:
             return False
 
         # Only when partner explicitly asks for contact / moving platform.
         partner_low = (partner_text or "").lower()
         explicit_contact_signals = [
             "telegram", "tg", "username", "user", "insta", "instagram", "snap", "whatsapp", "number",
-            "contact", "dm", "write me", "text me", "where can i",
+            "contact", "dm", "write me", "text me", "where can i", "add me", "message me",
             "тг", "телеграм", "юзер", "контакт", "номер", "инста", "напиши",
         ]
         if any(signal in partner_low for signal in explicit_contact_signals):
             return True
 
-        # Proactive offer only when dialog is very hot.
-        if dialog.heat_score >= 72 and dialog.spicy_turns >= 2:
+        # Proactive offer when dialog is hot enough (lowered from 72 to 60)
+        if dialog.heat_score >= 60 and dialog.spicy_turns >= 2:
+            return True
+        
+        # Very hot dialog - always offer
+        if dialog.heat_score >= 75:
             return True
 
         return False
@@ -1099,7 +1328,8 @@ dialog heat: {dialog.heat_score}/100
             variants = [
                 f"{response} my @{self.target_username}",
                 f"{response} @{self.target_username}",
-                f"my @{self.target_username}, {response}"
+                f"my @{self.target_username}, {response}",
+                f"{response} it's @{self.target_username}",
             ]
             return random.choice(variants)
 
@@ -1108,7 +1338,10 @@ dialog heat: {dialog.heat_score}/100
             f"drop ur tg, mine's @{self.target_username} 💕",
             f"dm me, @{self.target_username} 😘",
             f"my @{self.target_username}, hmu there)",
-            f"move to tg? mine's @{self.target_username}"
+            f"move to tg? mine's @{self.target_username}",
+            f"let's chat on tg, i'm @{self.target_username}",
+            f"add me on tg: @{self.target_username} 💕",
+            f"@{self.target_username} on tg, text me there)",
         ]
 
         return f"{response} {random.choice(closings)}"
@@ -1124,8 +1357,9 @@ dialog heat: {dialog.heat_score}/100
             if self.current_dialog:
                 self.current_dialog.message_count += 1
                 self.current_dialog.dialogue_history.append({"role": "assistant", "content": text})
-                if len(self.current_dialog.dialogue_history) > 12:
-                    self.current_dialog.dialogue_history = self.current_dialog.dialogue_history[-12:]
+                # Increased history limit from 12 to 20 for better context
+                if len(self.current_dialog.dialogue_history) > 20:
+                    self.current_dialog.dialogue_history = self.current_dialog.dialogue_history[-20:]
                 norm = re.sub(r"[^a-z0-9]+", "", text.lower())
                 if norm:
                     self.current_dialog.recent_assistant_replies.append(norm)
@@ -1188,6 +1422,9 @@ dialog heat: {dialog.heat_score}/100
             "hey)",
             "heyy, u look fun)",
             "hey cutie, m or f?",
+            "hey, m or f?",
+            "hiiii, m or f?",
+            "hey there)",
         ]
         return random.choice(openings)
 
@@ -1218,6 +1455,51 @@ dialog heat: {dialog.heat_score}/100
                 logger.warning(f"⏱️ Dialog exceeded {timeout}s, keep running (no auto-next)")
         except asyncio.CancelledError:
             pass
+    
+    async def _analyze_message_spiciness(self, partner_text: str):
+        """Analyze partner message spiciness using AI for better context understanding"""
+        if not self.current_dialog or not partner_text.strip():
+            return
+        
+        try:
+            analysis_prompt = f"""Analyze this message for sexual/flirty content level.
+Message: "{partner_text}"
+
+Rate from 0-10:
+0 = completely neutral/casual (e.g., "hey", "where u from")
+3 = friendly/playful (e.g., "u seem cool", "nice")
+5 = light flirting (e.g., "u're cute", "i like u")
+7 = suggestive/bold (e.g., "u're hot", "wanna have fun")
+10 = explicit sexual (e.g., direct sexual propositions)
+
+Respond with ONLY a number 0-10, nothing else."""
+
+            messages = [{"role": "user", "content": analysis_prompt}]
+            response = await self.ai.get_raw_response(messages)
+            
+            # Extract number from response
+            match = re.search(r'\b([0-9]|10)\b', response)
+            if match:
+                spiciness_score = int(match.group(1))
+                
+                # Convert 0-10 scale to heat delta
+                if spiciness_score >= 8:
+                    heat_boost = 15
+                elif spiciness_score >= 6:
+                    heat_boost = 10
+                elif spiciness_score >= 4:
+                    heat_boost = 5
+                elif spiciness_score >= 2:
+                    heat_boost = 2
+                else:
+                    heat_boost = 0
+                
+                if heat_boost > 0:
+                    self.current_dialog.heat_score = min(100, self.current_dialog.heat_score + heat_boost)
+                    logger.info(f"[AI spiciness] score={spiciness_score}/10, heat +{heat_boost} -> {self.current_dialog.heat_score}")
+        
+        except Exception as e:
+            logger.debug(f"Spiciness analysis failed: {e}")
 
     def get_stats(self) -> Dict:
         """Get session statistics"""

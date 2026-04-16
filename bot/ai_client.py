@@ -161,18 +161,18 @@ class AIClient:
                     if resp.status != 200:
                         error_data = await resp.text()
                         logger.error(f"API error {resp.status}: {error_data}")
-                        return "ugh wtf, u still there?"
+                        raise Exception(f"API error {resp.status}")
 
                     result = await resp.json()
 
                     if 'choices' not in result or not result['choices']:
-                        return "hello?? why u ghosting"
+                        raise Exception("Empty response from API")
 
                     return result['choices'][0]['message']['content']
 
         except Exception as e:
             logger.error(f"AI error: {e}")
-            return "ugh connection died, write again"
+            raise
 
     def _get_mood_by_trust(self, trust: int) -> str:
         """
