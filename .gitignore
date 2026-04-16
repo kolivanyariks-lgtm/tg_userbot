@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# Data (but NOT session file - we want to commit it)
+data/dialogues/
+data/contexts/
+data/*.txt
+data/*.json
+data/bot.log
+
+# Temporary files
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Railway/Render specific
+.railway/
