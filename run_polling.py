@@ -177,7 +177,33 @@ async def main():
 
         # Start client
         logger.info("📲 Connecting to Telegram...")
-        await bot.client.start(phone=Config.PHONE_NUMBER)
+        
+        # Check if session already exists
+        session_file = f"{Config.SESSION_FILE}.session"
+        if os.path.exists(session_file):
+            logger.info(f"✅ Using existing session: {session_file}")
+            try:
+                await bot.client.connect()
+                if await bot.client.is_user_authorized():
+                    logger.info("✅ Session is valid, already authorized!")
+                else:
+                    logger.warning("⚠️ Session exists but not authorized, will request code")
+                    await bot.client.start(phone=Config.PHONE_NUMBER)
+            except Exception as e:
+                logger.error(f"❌ Error with existing session: {e}")
+                raise
+        else:
+            logger.warning("⚠️ No session found, will create new one")
+            try:
+                await bot.client.start(phone=Config.PHONE_NUMBER)
+            except Exception as e:
+                if "FloodWaitError" in str(type(e).__name__):
+                    wait_seconds = int(str(e).split()[3])
+                    logger.error(f"🚫 Telegram FloodWait: Need to wait {wait_seconds} seconds")
+                    logger.error(f"⏰ Try again after {wait_seconds // 60} minutes")
+                    logger.error("💡 Tip: Use auth_interactive.py in Railway Shell to authorize manually")
+                raise
+        
         logger.info("✅ Connected!")
 
         # Initialize manager
@@ -200,7 +226,13 @@ async def main():
         except:
             pass
     except Exception as e:
-        logger.error(f"💥 Critical error: {e}", exc_info=True)
+        error_name = type(e).__name__
+        if "FloodWaitError" in error_name:
+            logger.error(f"💥 Telegram FloodWait error: {e}")
+            logger.error("⏰ You need to wait before trying again")
+            logger.error("💡 Solution: Wait 5 minutes, then use auth_interactive.py in Railway Shell")
+        else:
+            logger.error(f"💥 Critical error: {e}", exc_info=True)
         raise
 
     return 0
