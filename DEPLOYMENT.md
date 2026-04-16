@@ -1,6 +1,16 @@
 # Telegram UserBot - Deployment Guide for Railway
 
-## 🚀 Quick Start
+## ⚠️ Important: Railway Session Size Limit
+
+Railway has a 32KB limit for environment variables. If your `SESSION_B64` exceeds this:
+
+**Option 1: Use Render.com instead** (recommended - supports 100KB+ env vars)
+**Option 2: Use Railway Volume** (see "Railway Volume Setup" below)
+**Option 3: Use Railway CLI** to upload session directly
+
+---
+
+## 🚀 Quick Start (Render.com - Recommended)
 
 ### 1. Create Session Locally
 
