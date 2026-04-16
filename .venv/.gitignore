@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# Сессии и данные Telegram
+*.session
+*.session-journal
+captured_usernames.txt
+
+# Логи
+*.log
+logs/
+
+# Конфиги с секретами (если есть отдельный файл)
+config.ini
+secrets.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+__pycache__/
+*.py[cod]
+*.session
+*.session-journal
+data/
+.env
+*.log
+logs/

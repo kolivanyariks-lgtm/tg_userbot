@@ -1,0 +1,28 @@
+services:
+  - type: worker
+    name: telegram-userbot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_polling.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: RENDER
+        value: "true"
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: PHONE_NUMBER
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: SESSION_B64
+        sync: false
+      - key: TARGET_USERNAME
+        sync: false
+      - key: ROULETTE_BOT
+        value: anonymous_chat_bot
+      - key: BOT_NAME
+        value: Diana

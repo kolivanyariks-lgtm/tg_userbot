@@ -1,0 +1,12 @@
+# Telegram UserBot
+# Works on behalf of a user via Telethon
+
+# Core dependencies
+telethon>=1.35.0          # Client for working with Telegram API
+aiohttp>=3.9.0            # Async HTTP requests (for AI API)
+python-dotenv>=1.0.0      # Load variables from .env file
+openai>=1.0.0             # OpenAI API (for OpenRouter)
+
+# Server (for webhook mode)
+flask>=3.0.0              # Web framework for server
+gunicorn>=21.2.0          # WSGI server for production

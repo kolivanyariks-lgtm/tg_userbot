@@ -1,0 +1,9 @@
+# ============================================
+# Dialogue examples for bot training
+# Format: Name, [date time]
+# Message text
+#
+# Add your real dialogues here
+# Bot will learn from this communication style
+# ============================================
+
